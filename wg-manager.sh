@@ -28,7 +28,7 @@
 # -----------------------------------------------------------------------------
 
 # Script version
-VERSION="1.0.3"
+VERSION="1.0.0"
 
 # ---------- Color Definitions ----------
 readonly RED='\033[0;31m'
@@ -779,11 +779,14 @@ function restart_server() {
 
   log_info "Restarting WireGuard server..."
 
-  # Check if config file exists
+  # Find the actual config file - it might be wg0-server.conf, not wg0.conf
   local server_conf="${config_dir}/${SERVER_WG_NIC}-server.conf"
   if [ ! -f "$server_conf" ]; then
     log_error "Configuration file not found: $server_conf"
   fi
+
+  # Determine the correct systemd service name (without -server suffix)
+  local systemd_service="${SERVER_WG_NIC}"
 
   # Validate the configuration file
   log_info "Validating configuration file..."
@@ -811,6 +814,12 @@ function restart_server() {
     fi
   fi
 
+  # Create a symlink from wg0.conf to wg0-server.conf if needed for systemd
+  if [ "$os" != "macos" ] && [ ! -f "${config_dir}/${systemd_service}.conf" ]; then
+    log_info "Creating symlink for systemd compatibility..."
+    ln -sf "$server_conf" "${config_dir}/${systemd_service}.conf"
+  fi
+
   # OS-specific restart
   if [ "$os" == "macos" ]; then
     # macOS WireGuard restart
@@ -830,16 +839,16 @@ function restart_server() {
       log_info "Restarting WireGuard systemd service..."
 
       # Stop first
-      systemctl stop wg-quick@${SERVER_WG_NIC}
+      systemctl stop wg-quick@${systemd_service}
       sleep 1
 
       # Try to start and capture error output
-      if systemctl start wg-quick@${SERVER_WG_NIC}; then
+      if systemctl start wg-quick@${systemd_service}; then
         log_info "WireGuard systemd service successfully restarted."
       else
         log_warning "Systemd service restart failed. Trying direct wg-quick approach..."
         # Show systemd status for debugging
-        systemctl status wg-quick@${SERVER_WG_NIC} --no-pager || true
+        systemctl status wg-quick@${systemd_service} --no-pager || true
 
         # Try direct wg-quick approach
         if ip link show "$SERVER_WG_NIC" &>/dev/null; then
@@ -853,9 +862,12 @@ function restart_server() {
           log_error "Failed to restart WireGuard. Check configuration file for errors."
           echo -e "\n${ORANGE}Troubleshooting suggestions:${NC}"
           echo "1. Check your configuration file for errors"
-          echo "2. Run: journalctl -xeu wg-quick@${SERVER_WG_NIC}.service"
+          echo "2. Run: journalctl -xeu wg-quick@${systemd_service}.service"
           echo "3. Verify that your firewall allows UDP port ${SERVER_PORT:-51820}"
           echo "4. Make sure there are no IP conflicts"
+          echo -e "\n${ORANGE}Configuration location:${NC}"
+          echo "- Server config: $server_conf"
+          echo "- Systemd expects: ${config_dir}/${systemd_service}.conf"
           return 1
         fi
       fi
