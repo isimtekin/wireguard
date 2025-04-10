@@ -823,16 +823,37 @@ function restart_server() {
   local os=$(detect_os)
   local config_dir=$(get_config_dir)
 
-  # Source server variables
-  if [ -f "${config_dir}/server_vars" ]; then
-    source "${config_dir}/server_vars"
-  else
-    check_server_config
-  fi
-
   log_info "Restarting WireGuard server..."
 
-  # Find the actual config file - it might be wg0-server.conf, not wg0.conf
+  # Find WireGuard server config files if SERVER_WG_NIC is not set
+  if [ -z "$SERVER_WG_NIC" ]; then
+    # Source server variables if they exist
+    if [ -f "${config_dir}/server_vars" ]; then
+      source "${config_dir}/server_vars"
+    fi
+
+    # If still empty, try to find config files
+    if [ -z "$SERVER_WG_NIC" ]; then
+      local server_confs=( $(ls ${config_dir}/*-server.conf 2>/dev/null) )
+      if [ ${#server_confs[@]} -eq 0 ]; then
+        log_error "No WireGuard server configuration found. Please run '$(basename $0) config' first."
+      fi
+
+      # Use the first server config found
+      local server_config_file="${server_confs[0]}"
+      SERVER_WG_NIC=$(basename "${server_config_file}" -server.conf)
+
+      # Fallback to wg0 if we couldn't determine the name
+      if [ -z "$SERVER_WG_NIC" ] || [ "$SERVER_WG_NIC" = "-server.conf" ]; then
+        SERVER_WG_NIC="wg0"
+        log_warning "Could not determine interface name, using default: $SERVER_WG_NIC"
+      else
+        log_info "Using detected interface: $SERVER_WG_NIC"
+      fi
+    fi
+  fi
+
+  # Find the actual config file
   local server_conf="${config_dir}/${SERVER_WG_NIC}-server.conf"
   if [ ! -f "$server_conf" ]; then
     log_error "Configuration file not found: $server_conf"
