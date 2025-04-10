@@ -1019,8 +1019,9 @@ function import_client_conf() {
     decoded=$(echo "$input" | base64 -d)
   fi
 
-  local filename=$(echo "$decoded" | cut -d'::' -f1)
-  local content_b64=$(echo "$decoded" | cut -d'::' -f2-)
+  # Split on first "::"
+  local filename=$(echo "$decoded" | awk -F '::' '{print $1}')
+  local content_b64=$(echo "$decoded" | awk -F '::' '{print substr($0, index($0,$2))}')
 
   if [ -z "$filename" ] || [ -z "$content_b64" ]; then
     log_error "Invalid base64 format. Expecting 'filename::base64-content'."
@@ -1043,7 +1044,7 @@ function import_client_conf() {
   fi
 
   chmod 600 "$target_file"
-  log_info "Client config imported to: $target_file"
+  log_info "✅ Client config imported to: $target_file"
 }
 
 function main() {
