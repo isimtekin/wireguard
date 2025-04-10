@@ -653,11 +653,34 @@ function show_status() {
     fi
   fi
 
-  # Check if the interface is running
-  if ip link show "$SERVER_WG_NIC" &>/dev/null || ifconfig "$SERVER_WG_NIC" &>/dev/null 2>&1; then
-    echo -e "${GREEN}✅ Interface status: ${ORANGE}ACTIVE${NC}"
-  else
+  # Check for alternative interface names - some systems might use wg0 instead of wg0-server
+  local found_interface=false
+  local interface_options=("$SERVER_WG_NIC" "${SERVER_WG_NIC}-server" "${SERVER_WG_NIC//-server/}")
+
+  for iface in "${interface_options[@]}"; do
+    if ip link show "$iface" &>/dev/null 2>&1 || ifconfig "$iface" &>/dev/null 2>&1; then
+      found_interface=true
+      SERVER_WG_NIC="$iface"
+      echo -e "${GREEN}✅ Interface status: ${ORANGE}ACTIVE (as $iface)${NC}"
+      break
+    fi
+  done
+
+  # If we didn't find any active interface
+  if [ "$found_interface" = false ]; then
     echo -e "${ORANGE}⚠️  Interface status: INACTIVE${NC}"
+
+    # Check if there's a config mismatch that might be causing issues
+    if [ -f "${config_dir}/${SERVER_WG_NIC}.conf" ] && [ -f "${config_dir}/${SERVER_WG_NIC}-server.conf" ]; then
+      echo -e "${ORANGE}⚠️  Multiple configuration files detected. This might cause issues.${NC}"
+      echo -e "${ORANGE}   - ${config_dir}/${SERVER_WG_NIC}.conf${NC}"
+      echo -e "${ORANGE}   - ${config_dir}/${SERVER_WG_NIC}-server.conf${NC}"
+    elif [ ! -f "${config_dir}/${SERVER_WG_NIC}.conf" ] && [ -f "${config_dir}/${SERVER_WG_NIC}-server.conf" ]; then
+      echo -e "${ORANGE}⚠️  WireGuard systemd service might be looking for: ${config_dir}/${SERVER_WG_NIC}.conf${NC}"
+      echo -e "${ORANGE}   You may need to create a symlink:${NC}"
+      echo -e "${ORANGE}   ln -sf ${config_dir}/${SERVER_WG_NIC}-server.conf ${config_dir}/${SERVER_WG_NIC}.conf${NC}"
+    fi
+
     echo -e "${ORANGE}   Run '$(basename $0) activate' to start the server${NC}"
   fi
 
@@ -709,17 +732,47 @@ function show_status() {
     echo -e "${GREEN}📈 Active Interface Details:${NC}"
     wg show "$SERVER_WG_NIC"
   else
-    echo -e "${ORANGE}⚠️  Interface not active. No detailed status available.${NC}"
+    # Try alternative interface names
+    local found_wg=false
+    for iface in "${interface_options[@]}"; do
+      if wg show "$iface" &>/dev/null; then
+        found_wg=true
+        echo -e "${GREEN}📈 Active Interface Details (as $iface):${NC}"
+        wg show "$iface"
+        break
+      fi
+    done
+
+    if [ "$found_wg" = false ]; then
+      echo -e "${ORANGE}⚠️  Interface not active. No detailed status available.${NC}"
+    fi
   fi
 
   # Show traffic statistics if available
-  if command -v vnstat &>/dev/null && vnstat -i "$SERVER_WG_NIC" &>/dev/null; then
-    echo -e "${GREEN}───────────────────────────────────────────────────${NC}"
-    echo -e "${GREEN}📶 Traffic Statistics:${NC}"
-    vnstat -i "$SERVER_WG_NIC" --oneline
+  if command -v vnstat &>/dev/null; then
+    # Try to find stats for any potential interface name
+    local found_stat=false
+    for iface in "${interface_options[@]}"; do
+      if vnstat -i "$iface" &>/dev/null; then
+        found_stat=true
+        echo -e "${GREEN}───────────────────────────────────────────────────${NC}"
+        echo -e "${GREEN}📶 Traffic Statistics for $iface:${NC}"
+        vnstat -i "$iface" --oneline
+        break
+      fi
+    done
   fi
 
   echo -e "${GREEN}───────────────────────────────────────────────────${NC}"
+
+  # Show potential config issues
+  if [ "$found_interface" = false ]; then
+    echo -e "${ORANGE}⚠️  Potential configuration issues:${NC}"
+    echo -e "   1. Check systemd service: systemctl status wg-quick@${SERVER_WG_NIC//-server/}.service"
+    echo -e "   2. Server config: ${server_config_file}"
+    echo -e "   3. Expected systemd config: ${config_dir}/${SERVER_WG_NIC//-server/}.conf"
+    echo -e "   4. Try running: sudo $(basename $0) restart"
+  fi
 }
 
 function deactivate_server() {
