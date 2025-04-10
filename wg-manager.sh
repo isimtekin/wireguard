@@ -28,7 +28,7 @@
 # -----------------------------------------------------------------------------
 
 # Script version
-VERSION="1.0.1"
+VERSION="1.0.2"
 
 # ---------- Color Definitions ----------
 readonly RED='\033[0;31m'
@@ -931,12 +931,12 @@ function upgrade_manager() {
     changed=true
   fi
 
-  log_info "📊 Current version: ${current_version}"
-  log_info "📊 Latest version: ${new_version}"
+  log_info "📊 Current version: \"${current_version}\""
+  log_info "📊 Latest version: \"${new_version}\""
 
   # If no changes and versions are the same, no need to update
   if [ "$current_version" = "$new_version" ] && [ "$changed" = false ]; then
-    log_info "✅ You already have the latest version ($current_version)."
+    log_info "✅ You already have the latest version \"$current_version\"."
     rm -rf "$temp_dir"
     return 0
   fi
@@ -966,7 +966,7 @@ function upgrade_manager() {
   # Clean up
   rm -rf "$temp_dir"
 
-  log_info "✅ WireGuard Manager has been successfully upgraded to version ${new_version}!"
+  log_info "✅ WireGuard Manager has been successfully upgraded to version \"${new_version}\"!"
   log_info "   If you encounter any issues, your backup is at: $backup_path"
   log_info "   You can restore it with: cp $backup_path $installed_path"
 
