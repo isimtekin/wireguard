@@ -64,6 +64,8 @@ function show_usage() {
   echo -e "  ${ORANGE}install${NC}             Install WireGuard on the current system"
   echo -e "  ${ORANGE}config${NC}              Create WireGuard server configuration"
   echo -e "  ${ORANGE}add-client${NC}          Add a new client to WireGuard server"
+  echo -e "  ${ORANGE}export${NC}              Export a client configuration to a file"
+  echo -e "  ${ORANGE}import${NC}              Import a client configuration from a file"
   echo -e "  ${ORANGE}transfer-conf${NC}       Transfer a client config from server to destination"
   echo -e "  ${ORANGE}download-conf${NC}       Download a client config from server to local machine"
   echo -e "  ${ORANGE}list-clients${NC}        List all existing WireGuard clients"
@@ -77,6 +79,8 @@ function show_usage() {
   echo -e "  $(basename $0) install                       # Install WireGuard"
   echo -e "  $(basename $0) config                        # Set up server configuration"
   echo -e "  $(basename $0) add-client                    # Add a new client"
+  echo -e "  $(basename $0) export-client-conf            # Export a client configuration"
+  echo -e "  $(basename $0) import                        # Import a client configuration"
   echo -e "  $(basename $0) status                        # Show server status and configuration"
   echo -e "  $(basename $0) restart                       # Restart WireGuard server"
   echo -e "  $(basename $0) upgrade                       # Update to the latest version"
@@ -959,6 +963,89 @@ function upgrade_manager() {
   return 0
 }
 
+function export_client_conf() {
+  local os=$(detect_os)
+  local config_dir=$(get_config_dir)
+
+  read -rp "Client name to export: " CLIENT_NAME
+  local client_config_file="${config_dir}/${CLIENT_NAME}.conf"
+
+  if [ ! -f "$client_config_file" ]; then
+    log_error "Client config not found: $client_config_file"
+  fi
+
+  # Check if base64 command exists
+  if ! command -v base64 >/dev/null 2>&1; then
+    if [ "$os" == "macos" ]; then
+      log_warning "base64 not found. Installing with brew..."
+      brew install coreutils
+    else
+      log_warning "base64 not found. Installing with apt/yum/pacman..."
+      if command -v apt >/dev/null 2>&1; then
+        apt update && apt install -y coreutils
+      elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y coreutils
+      elif command -v pacman >/dev/null 2>&1; then
+        pacman -S --noconfirm coreutils
+      elif command -v apk >/dev/null 2>&1; then
+        apk add coreutils
+      fi
+    fi
+  fi
+
+  local content=$(base64 < "$client_config_file")
+  local filename=$(basename "$client_config_file")
+
+  echo "Exported Base64:"
+  echo "${filename}::${content}" | base64
+}
+
+function import_client_conf() {
+  local os=$(detect_os)
+  local config_dir=$(get_config_dir)
+
+  log_info "Paste the base64 input and press Ctrl+D:"
+  local input=$(cat)
+
+  if [ -z "$input" ]; then
+    log_error "Empty input."
+  fi
+
+  # Decode outer base64
+  local decoded
+  if [ "$os" == "macos" ]; then
+    decoded=$(echo "$input" | base64 -D)
+  else
+    decoded=$(echo "$input" | base64 -d)
+  fi
+
+  local filename=$(echo "$decoded" | cut -d'::' -f1)
+  local content_b64=$(echo "$decoded" | cut -d'::' -f2-)
+
+  if [ -z "$filename" ] || [ -z "$content_b64" ]; then
+    log_error "Invalid base64 format. Expecting 'filename::base64-content'."
+  fi
+
+  local target_file="${config_dir}/${filename}"
+
+  if [ -f "$target_file" ]; then
+    read -rp "File ${filename} already exists. Overwrite? (y/N): " OVERWRITE
+    if [[ ! $OVERWRITE =~ ^[Yy]$ ]]; then
+      log_warning "Import cancelled."
+      return
+    fi
+  fi
+
+  if [ "$os" == "macos" ]; then
+    echo "$content_b64" | base64 -D > "$target_file"
+  else
+    echo "$content_b64" | base64 -d > "$target_file"
+  fi
+
+  chmod 600 "$target_file"
+  log_info "Client config imported to: $target_file"
+}
+
 function main() {
   local os=$(detect_os)
 
@@ -1002,6 +1089,12 @@ function main() {
       ;;
     status)
       show_status
+      ;;
+    export)
+      export_client_conf
+      ;;
+    import)
+      import_client_conf
       ;;
     upgrade)
       upgrade_manager
