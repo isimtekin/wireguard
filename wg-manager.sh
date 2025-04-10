@@ -28,7 +28,7 @@
 # -----------------------------------------------------------------------------
 
 # Script version
-VERSION="1.0.2"
+VERSION="1.0.3"
 
 # ---------- Color Definitions ----------
 readonly RED='\033[0;31m'
@@ -688,8 +688,14 @@ function show_status() {
   echo -e "   🔢 Server Host IP    : ${ORANGE}${PRIVATE_SUBNET_BASE:-10.0.0}.${SERVER_HOST_IP:-1}/24${NC}"
 
   # Get DNS from config file if not set
-  if [ -z "$CLIENT_DNS" ] && [ -f "${config_dir}/"*".conf" ]; then
-    CLIENT_DNS=$(grep "DNS" "${config_dir}/"*".conf" 2>/dev/null | head -1 | cut -d '=' -f2 | tr -d ' ')
+  if [ -z "$CLIENT_DNS" ]; then
+    local client_conf_files=( $(ls "${config_dir}/"*.conf 2>/dev/null) )
+    for conf_file in "${client_conf_files[@]}"; do
+      if [ -f "$conf_file" ] && grep -q "DNS" "$conf_file" 2>/dev/null; then
+        CLIENT_DNS=$(grep "DNS" "$conf_file" | head -1 | cut -d '=' -f2 | tr -d ' ')
+        break
+      fi
+    done
   fi
   echo -e "   🔠 Client DNS Server : ${ORANGE}${CLIENT_DNS:-1.1.1.1}${NC}"
 
