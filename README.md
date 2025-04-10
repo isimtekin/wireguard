@@ -1,149 +1,343 @@
-# WireGuard Install & Client Manager Script
+# WireGuard Manager
 
-This project provides a **Bash script** to simplify the setup, configuration, and management of a WireGuard VPN server and its clients. It is designed to be used on **Linux** and **macOS** systems, with support for interactive and scripted modes.
+![WireGuard Logo](https://www.wireguard.com/img/wireguard.svg)
 
----
+WireGuard Manager is a comprehensive bash script that simplifies the installation, configuration, and management of WireGuard VPN servers and clients. It's designed to work seamlessly on both Linux and macOS systems.
 
-## 🚀 Features
+## Features
 
-- Install WireGuard based on detected OS (Linux/macOS)
-- Generate server configuration with customizable subnet
-- Create and register clients
-- Download and transfer client `.conf` files
-- List registered clients
+- 🚀 **Cross-platform compatibility** (Linux and macOS)
+- 🔧 **Simple installation** process for WireGuard
+- 🔒 **Easy server configuration** with sensible defaults
+- 👥 **Client management** to create, list, and transfer client configs
+- 📊 **Status monitoring** with detailed information about your server
+- 🔄 **Seamless restart** capabilities when configurations change
+- 📱 **QR code generation** for easy mobile client setup (when `qrencode` is installed)
+- 🖥️ **Multiple distro support** including Ubuntu, Debian, CentOS, Fedora, Arch, and Alpine
 
----
+## Installation
 
-## 🖥️ Supported Operating Systems
+### Option 1: Quick Start (Running from the current directory)
 
-This script supports the following operating systems:
+1. Download the script
+   ```bash
+   curl -O https://raw.githubusercontent.com/isimtekin/wireguard/main/wg-manager.sh
+   chmod +x wg-manager.sh
+   ```
 
-- Ubuntu (18.04+)
-- Debian (10+)
-- Fedora (32+)
-- CentOS / Rocky / AlmaLinux (8+)
-- Arch Linux
-- Alpine Linux
-- macOS (via Homebrew)
+2. Install WireGuard
+   ```bash
+   sudo ./wg-manager.sh install
+   ```
 
----
+### Option 2: System-Wide Installation
 
-## 📦 Installation
+Install WireGuard Manager as a system-wide command, making it accessible from any directory:
 
-Clone the repository and give the script execute permissions:
+1. Download both the main script and the installation script
+   ```bash
+   curl -O https://raw.githubusercontent.com/isimtekin/wireguard/main/wg-manager.sh
+   curl -O https://raw.githubusercontent.com/isimtekin/wireguard/main/install.sh
+   chmod +x wg-manager.sh install.sh
+   ```
 
-```bash
-git clone https://github.com/isimtekin/wireguard.git
-cd wireguard
-chmod +x wg.sh
-```
+2. Run the installation script
+   ```bash
+   sudo ./install.sh
+   ```
 
----
+3. Now you can run WireGuard Manager from anywhere using:
+   ```bash
+   sudo wg-manager status
+   sudo wg-manager add-client
+   # etc...
+   ```
 
-## 🛠️ Commands & Usage
+**Manual System-Wide Installation:**
 
-### `install`
-Install WireGuard and its dependencies.
-```bash
-./wg.sh install
-```
-
-### `config`
-Generate server keys and create the WireGuard server configuration.
-You will be prompted to enter:
-- Server public IP
-- Interface name
-- VPN subnet (e.g., `10.0.0`)
-- Server IP last octet (e.g., `1`)
-- Listen port (default: `51820`)
-- DNS for clients (default: `1.1.1.1`)
-
-```bash
-./wg.sh config
-```
-
-### `add-client`
-Create a new client:
-- Generates keys
-- Appends the client to server config
-- Saves client `.conf` file
+If you prefer to install manually:
 
 ```bash
-./wg.sh add-client
+sudo cp wg-manager.sh /usr/local/bin/wg-manager
+sudo chmod +x /usr/local/bin/wg-manager
 ```
 
-### `list-clients`
-Show a list of all clients registered in server config:
+## Basic Setup Guide
+
+Setting up your WireGuard VPN is easy with WireGuard Manager:
+
+1. Install WireGuard on your system
+   ```bash
+   sudo wg-manager install
+   ```
+
+2. Create your server configuration
+   ```bash
+   sudo wg-manager config
+   ```
+   Follow the prompts and provide information or accept the defaults.
+
+3. Add a client
+   ```bash
+   sudo wg-manager add-client
+   ```
+   Enter a name for your client when prompted.
+
+4. Start the WireGuard server
+   ```bash
+   sudo wg-manager activate
+   ```
+
+5. Check that everything is working
+   ```bash
+   sudo wg-manager status
+   ```
+
+## Usage
+
+```
+WireGuard Manager Script v1.0.0
+
+Usage: ./wg-manager.sh COMMAND
+
+Commands:
+  install             Install WireGuard on the current system
+  config              Create WireGuard server configuration
+  add-client          Add a new client to WireGuard server
+  transfer-conf       Transfer a client config from server to destination
+  download-conf       Download a client config from server to local machine
+  list-clients        List all existing WireGuard clients
+  status              Show current WireGuard status and configuration summary
+  activate            Start the WireGuard server
+  deactivate          Stop the WireGuard server
+  restart             Restart the WireGuard server
+  upgrade             Check for updates and upgrade to the latest version
+  help                Show this help message
+```
+
+## Detailed Guide
+
+### Installing WireGuard
+
+The script detects your operating system and installs WireGuard using the appropriate package manager:
+
 ```bash
-./wg.sh list-clients
+sudo wg-manager install
 ```
 
-### `download-conf`
-Download a client's configuration from a remote server to local machine:
+### Configuring the Server
+
+The configuration process will prompt you for the necessary information, providing sensible defaults:
+
 ```bash
-./wg.sh download-conf
+sudo wg-manager config
 ```
-You will be prompted for:
-- Server IP
-- Client name
 
-### `transfer-conf`
-Fetch a client config from a server and upload to another destination server.
-Useful for provisioning another machine.
+You'll be asked for:
+- Public IP address (auto-detected)
+- Network interface (auto-detected)
+- WireGuard interface name (default: wg0)
+- Private subnet (default: 10.0.0.0/24)
+- Server IP within the subnet (default: 10.0.0.1)
+- UDP port (default: 51820)
+- Client DNS server (default: 1.1.1.1)
+
+### Adding Clients
+
+To add a new client:
+
 ```bash
-./wg.sh transfer-conf
+sudo wg-manager add-client
 ```
-You will be prompted for:
-- Server IP
-- Destination IP
-- Client name
 
----
+You'll be prompted for a client name, and the script will:
+1. Generate keys and configurations
+2. Add the client to the server config
+3. Create a downloadable configuration file
+4. Generate a QR code if `qrencode` is installed
+5. Offer to restart the server to apply changes
 
-## 📂 File Locations
+### Managing the Server
 
-- Server configuration: `/etc/wireguard/wg0-server.conf`
-- Client configurations: `/etc/wireguard/<client-name>.conf`
-- Keys: `/etc/wireguard/privatekey`, `/etc/wireguard/publickey`
-
----
-
-## ✅ Example Workflow
-
-1. On the VPN server:
+**Starting the server:**
 ```bash
-./wg.sh install
-./wg.sh config
-./wg.sh add-client
+sudo wg-manager activate
 ```
 
-2. On your local machine:
+**Stopping the server:**
 ```bash
-./wg.sh download-conf
-# or to push it to another client machine
-./wg.sh transfer-conf
+sudo wg-manager deactivate
 ```
 
----
+**Restarting the server:**
+```bash
+sudo wg-manager restart
+```
 
-## 🧩 Requirements
-- Bash 4+
-- `wireguard` package (installed via script)
-- `scp`, `ssh`, `grep`, `cut`, `nl`
-- `zip` (optional if archiving configs)
+**Checking server status:**
+```bash
+sudo wg-manager status
+```
 
----
+**Upgrading to the latest version:**
+```bash
+sudo wg-manager upgrade
+```
+This will check for updates, download the latest version, and create a backup of your current version before upgrading.
 
-## 🛡️ Notes
-- This script must be run as `root` or with `sudo`, except on macOS.
-- All client configurations are stored with `.conf` extension and follow standard WireGuard formatting.
+### Transferring Configurations
 
----
+**Downloading a client config:**
+```bash
+sudo wg-manager download-conf
+```
 
-## 📄 License
-MIT License
+**Transferring a config between servers:**
+```bash
+sudo wg-manager transfer-conf
+```
 
----
+**Listing existing clients:**
+```bash
+sudo wg-manager list-clients
+```
 
-Made with ❤️ for simple WireGuard setups.
+## Configuration Files
 
+All configurations are stored in:
+- Linux: `/etc/wireguard/`
+- macOS: `/usr/local/etc/wireguard/`
+
+Key files include:
+- `wg0-server.conf`: Main server configuration
+- `privatekey`, `publickey`: Server keys
+- `server_vars`: Saved server variables for reuse
+- `<client_name>.conf`: Client configurations
+- `<client_name>.zip`: Zipped client configurations (if `zip` is installed)
+
+## Client Setup
+
+### Mobile Devices
+
+1. Add a client using the script:
+   ```bash
+   sudo wg-manager add-client
+   ```
+
+2. If you have `qrencode` installed, a QR code will be displayed. Scan this QR code using the WireGuard mobile app on your device.
+
+3. If you don't have `qrencode` installed, you can download the configuration file and manually import it:
+   ```bash
+   sudo wg-manager download-conf
+   ```
+
+### Desktop Clients
+
+1. Add a client using the script:
+   ```bash
+   sudo wg-manager add-client
+   ```
+
+2. Download the configuration file:
+   ```bash
+   sudo wg-manager download-conf
+   ```
+
+3. Import the `.conf` file into your WireGuard client software.
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. Check the server status:
+   ```bash
+   sudo wg-manager status
+   ```
+
+2. Verify that your firewall allows UDP traffic on your configured port (default 51820)
+
+3. If clients cannot connect, try restarting the server:
+   ```bash
+   sudo wg-manager restart
+   ```
+
+4. Ensure your server's public IP hasn't changed. If it has, you'll need to update client configurations.
+
+5. Common issues:
+    - **Client can't connect**: Check the server's public IP and port forwarding
+    - **No internet on client**: Check the AllowedIPs and server's forwarding settings
+    - **Connection drops**: Check the PersistentKeepalive setting (default is 25 seconds)
+
+## Common Scenarios
+
+### Setting up a new VPN server
+
+```bash
+sudo wg-manager install
+sudo wg-manager config
+sudo wg-manager add-client
+sudo wg-manager activate
+```
+
+### Adding multiple clients
+
+```bash
+sudo wg-manager add-client  # Add first client
+sudo wg-manager add-client  # Add second client
+sudo wg-manager restart     # Only needed if you didn't restart after adding clients
+```
+
+### Checking if clients are connected
+
+```bash
+sudo wg-manager status
+# Look for "Active Interface Details" section
+```
+
+### Updating after server IP changes
+
+If your server's public IP changes:
+
+1. Check the current status to see both IPs:
+   ```bash
+   sudo wg-manager status
+   ```
+
+2. You'll need to update client configurations or create new ones
+
+## Security Considerations
+
+- The script generates strong keys for both server and clients
+- Private keys are stored with restricted permissions (600)
+- Config directory permissions are restricted (700)
+- For production use, consider implementing additional firewall rules
+- Consider setting up regular backups of your configuration directory
+
+## Platform Specific Notes
+
+### Linux
+
+- Ensure your kernel supports WireGuard (Linux kernel 5.6+ has built-in support)
+- For older kernels, the script will install appropriate DKMS modules
+- Make sure forwarding is enabled: `sysctl -w net.ipv4.ip_forward=1`
+- Check your distribution's firewall settings to allow the WireGuard UDP port
+
+### macOS
+
+- Requires Homebrew for installation
+- May require sudo for most operations
+- Network interface names will be different from Linux (en0, en1, etc.)
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Based on the original work by [isimtekin](https://github.com/isimtekin/wireguard)
+- [WireGuard](https://www.wireguard.com/) - The incredible VPN technology
+- The open-source community for feedback and contributions
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
