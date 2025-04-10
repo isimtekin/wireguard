@@ -28,7 +28,7 @@
 # -----------------------------------------------------------------------------
 
 # Script version
-VERSION="1.0.1"
+VERSION="1.0.0"
 
 # ---------- Color Definitions ----------
 readonly RED='\033[0;31m'
@@ -844,26 +844,36 @@ function upgrade_manager() {
   # Make the downloaded file executable
   chmod +x "$temp_dir/wg-manager.sh"
 
-  # Compare versions (this is a basic implementation - you might want to enhance this)
-  local current_version=$(grep -o "VERSION=.*" "$installed_path" | cut -d'=' -f2 | tr -d '"')
-  local new_version=$(grep -o "VERSION=.*" "$temp_dir/wg-manager.sh" | cut -d'=' -f2 | tr -d '"')
+  # Compare versions (if available)
+  local current_version=$(grep -o "VERSION=.*" "$installed_path" 2>/dev/null | cut -d'=' -f2 | tr -d '"' || echo "unknown")
+  local new_version=$(grep -o "VERSION=.*" "$temp_dir/wg-manager.sh" 2>/dev/null | cut -d'=' -f2 | tr -d '"' || echo "latest")
 
-  log_info "📊 Current version: ${current_version:-unknown}"
-  log_info "📊 Latest version: ${new_version:-unknown}"
+  # Check for changes by comparing file contents (ignoring version lines)
+  local changed=false
+  if diff -q <(grep -v "VERSION=" "$installed_path") <(grep -v "VERSION=" "$temp_dir/wg-manager.sh") >/dev/null; then
+    log_info "📊 No significant changes detected between versions."
+    changed=false
+  else
+    log_info "📊 Found differences between current and new version."
+    changed=true
+  fi
 
-  # If we can't determine versions, ask the user
-  if [ -z "$current_version" ] || [ -z "$new_version" ]; then
-    read -rp "Continue with the update? (y/N): " CONTINUE
-    if [[ ! $CONTINUE =~ ^[Yy]$ ]]; then
-      log_warning "⚠️  Update canceled."
-      rm -rf "$temp_dir"
-      return 1
-    fi
-  # If versions are the same, no need to update
-  elif [ "$current_version" = "$new_version" ]; then
+  log_info "📊 Current version: ${current_version}"
+  log_info "📊 Latest version: ${new_version}"
+
+  # If no changes and versions are the same, no need to update
+  if [ "$current_version" = "$new_version" ] && [ "$changed" = false ]; then
     log_info "✅ You already have the latest version ($current_version)."
     rm -rf "$temp_dir"
     return 0
+  fi
+
+  # Ask for confirmation
+  read -rp "Do you want to update to the latest version? (y/N): " CONTINUE
+  if [[ ! $CONTINUE =~ ^[Yy]$ ]]; then
+    log_warning "⚠️  Update canceled."
+    rm -rf "$temp_dir"
+    return 1
   fi
 
   # Backup the current version
@@ -883,7 +893,7 @@ function upgrade_manager() {
   # Clean up
   rm -rf "$temp_dir"
 
-  log_info "✅ WireGuard Manager has been successfully upgraded to version ${new_version:-latest}!"
+  log_info "✅ WireGuard Manager has been successfully upgraded to version ${new_version}!"
   log_info "   If you encounter any issues, your backup is at: $backup_path"
   log_info "   You can restore it with: cp $backup_path $installed_path"
 
