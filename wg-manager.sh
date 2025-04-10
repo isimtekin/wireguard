@@ -310,11 +310,70 @@ function add_client() {
 
   log_info "Creating new WireGuard client configuration..."
 
-  # Source server variables
+  # Source server variables if they exist
   if [ -f "${config_dir}/server_vars" ]; then
     source "${config_dir}/server_vars"
+  fi
+
+  # Find WireGuard server config file
+  local server_confs=( $(ls ${config_dir}/*-server.conf 2>/dev/null) )
+  if [ ${#server_confs[@]} -eq 0 ]; then
+    log_error "❌ No WireGuard server configuration found. Run '$(basename $0) config' first."
+  fi
+
+  # Use the first server config found if SERVER_WG_NIC is not set
+  local server_config_file="${server_confs[0]}"
+  if [ -z "$SERVER_WG_NIC" ]; then
+    SERVER_WG_NIC=$(basename "${server_config_file}" -server.conf)
+    log_info "📄 Using detected interface: ${SERVER_WG_NIC}"
+  fi
+
+  # Read actual subnet from config file if PRIVATE_SUBNET_BASE is not set
+  if [ -z "$PRIVATE_SUBNET_BASE" ] || [ -z "$SERVER_HOST_IP" ]; then
+    if [ -f "$server_config_file" ]; then
+      # Extract IP from the config file (format like: Address = 10.100.0.1/24)
+      local full_address=$(grep "Address" "$server_config_file" | cut -d '=' -f2 | tr -d ' ')
+      if [ -n "$full_address" ]; then
+        # Parse IP like 10.100.0.1/24 to extract base (10.100.0) and host IP (1)
+        local ip_part=$(echo "$full_address" | cut -d'/' -f1)
+        SERVER_HOST_IP=$(echo "$ip_part" | rev | cut -d'.' -f1 | rev)
+        PRIVATE_SUBNET_BASE=$(echo "$ip_part" | rev | cut -d'.' -f2- | rev)
+        log_info "📄 Read subnet from config: ${PRIVATE_SUBNET_BASE}.0/24"
+      fi
+    fi
+  fi
+
+  # If we still don't have a subnet base, use default
+  if [ -z "$PRIVATE_SUBNET_BASE" ]; then
+    PRIVATE_SUBNET_BASE="$DEFAULT_SUBNET_BASE"
+    log_warning "⚠️ Using default subnet: ${PRIVATE_SUBNET_BASE}.0/24"
+  fi
+
+  # Read other server configuration if needed
+  if [ -z "$SERVER_PORT" ] && [ -f "$server_config_file" ]; then
+    SERVER_PORT=$(grep "ListenPort" "$server_config_file" | cut -d '=' -f2 | tr -d ' ')
+  fi
+
+  if [ -z "$SERVER_PORT" ]; then
+    SERVER_PORT="$DEFAULT_PORT"
+  fi
+
+  if [ -z "$CLIENT_DNS" ]; then
+    CLIENT_DNS="$DEFAULT_DNS"
+  fi
+
+  # Get the server public key
+  local server_public_key=""
+  if [ -f "${config_dir}/publickey" ]; then
+    server_public_key=$(cat "${config_dir}/publickey")
   else
-    check_server_config
+    log_error "❌ Server public key not found. Please run '$(basename $0) config' first."
+  fi
+
+  # Get the server public IP if not already set
+  if [ -z "$SERVER_PUB_IP" ]; then
+    SERVER_PUB_IP=$(get_public_ip)
+    log_info "📡 Detected server public IP: ${SERVER_PUB_IP}"
   fi
 
   # Get client name
@@ -341,6 +400,11 @@ function add_client() {
   local client_last_octet=$(generate_random_number 2 254)
   local client_ipv4="$PRIVATE_SUBNET_BASE.$client_last_octet/32"
 
+  # Find ALLOWED_IPS setting
+  if [ -z "$ALLOWED_IPS" ]; then
+    ALLOWED_IPS="$PRIVATE_SUBNET_BASE.0/24"
+  fi
+
   # Create client config file
   local client_config_file="${config_dir}/${CLIENT_NAME}.conf"
 
@@ -351,7 +415,7 @@ Address = $client_ipv4
 DNS = $CLIENT_DNS
 
 [Peer]
-PublicKey = $(cat ${config_dir}/publickey)
+PublicKey = $server_public_key
 PresharedKey = $client_preshared_key
 Endpoint = $SERVER_PUB_IP:$SERVER_PORT
 AllowedIPs = $ALLOWED_IPS
@@ -359,6 +423,8 @@ PersistentKeepalive = 25
 EOL
 
   log_info "Client config created at: $client_config_file"
+  log_info "Using subnet: ${PRIVATE_SUBNET_BASE}.0/24"
+  log_info "Client IP assigned: $client_ipv4"
 
   # Add client to server config
   {
@@ -551,21 +617,40 @@ function show_status() {
     return 1
   fi
 
+  # Find WireGuard interface and server config
+  local server_confs=( $(ls ${config_dir}/*-server.conf 2>/dev/null) )
+  if [ ${#server_confs[@]} -eq 0 ]; then
+    log_warning "❌ No WireGuard server configuration found. Run '$(basename $0) config' first."
+    return 1
+  fi
+
+  # Use the first server config found if not set
+  local server_config_file="${server_confs[0]}"
+  if [ -z "$SERVER_WG_NIC" ]; then
+    SERVER_WG_NIC=$(basename "${server_config_file}" -server.conf)
+  fi
+
   # Source server variables if they exist
   if [ -f "${config_dir}/server_vars" ]; then
     source "${config_dir}/server_vars"
     echo -e "${GREEN}✅ Configuration found${NC}"
   else
-    # Try to detect server config files
-    local server_confs=( $(ls ${config_dir}/*-server.conf 2>/dev/null) )
-    if [ ${#server_confs[@]} -eq 0 ]; then
-      log_warning "❌ No WireGuard server configuration found. Run '$(basename $0) config' first."
-      return 1
-    fi
-
-    # Use the first server config found
-    SERVER_WG_NIC=$(basename "${server_confs[0]}" -server.conf)
     log_warning "⚠️  Using detected configuration: ${SERVER_WG_NIC}"
+  fi
+
+  # Read actual subnet from config file if not in server_vars
+  if [ -z "$PRIVATE_SUBNET_BASE" ] || [ -z "$SERVER_HOST_IP" ]; then
+    if [ -f "$server_config_file" ]; then
+      # Extract IP from the config file (format like: Address = 10.100.0.1/24)
+      local full_address=$(grep "Address" "$server_config_file" | cut -d '=' -f2 | tr -d ' ')
+      if [ -n "$full_address" ]; then
+        # Parse IP like 10.100.0.1/24 to extract base (10.100.0) and host IP (1)
+        local ip_part=$(echo "$full_address" | cut -d'/' -f1)
+        SERVER_HOST_IP=$(echo "$ip_part" | rev | cut -d'.' -f1 | rev)
+        PRIVATE_SUBNET_BASE=$(echo "$ip_part" | rev | cut -d'.' -f2- | rev)
+        log_info "📄 Read subnet from config: ${PRIVATE_SUBNET_BASE}.0/24"
+      fi
+    fi
   fi
 
   # Check if the interface is running
@@ -591,15 +676,25 @@ function show_status() {
   # Get interface info
   echo -e "   🌐 WireGuard Interface: ${ORANGE}${SERVER_WG_NIC:-wg0}${NC}"
   echo -e "   🔌 Network Interface  : ${ORANGE}${SERVER_PUB_NIC:-Unknown}${NC}"
+
+  # Get port from config file if not set
+  if [ -z "$SERVER_PORT" ] && [ -f "$server_config_file" ]; then
+    SERVER_PORT=$(grep "ListenPort" "$server_config_file" | cut -d '=' -f2 | tr -d ' ')
+  fi
   echo -e "   🔢 UDP Port          : ${ORANGE}${SERVER_PORT:-51820}${NC}"
 
-  # Network details
+  # Network details - Use what we found in the config file
   echo -e "   🔢 Private Subnet    : ${ORANGE}${PRIVATE_SUBNET_BASE:-10.0.0}.0/24${NC}"
   echo -e "   🔢 Server Host IP    : ${ORANGE}${PRIVATE_SUBNET_BASE:-10.0.0}.${SERVER_HOST_IP:-1}/24${NC}"
+
+  # Get DNS from config file if not set
+  if [ -z "$CLIENT_DNS" ] && [ -f "${config_dir}/"*".conf" ]; then
+    CLIENT_DNS=$(grep "DNS" "${config_dir}/"*".conf" 2>/dev/null | head -1 | cut -d '=' -f2 | tr -d ' ')
+  fi
   echo -e "   🔠 Client DNS Server : ${ORANGE}${CLIENT_DNS:-1.1.1.1}${NC}"
 
   # Get clients count
-  local client_count=$(grep -E '^### Client' ${config_dir}/${SERVER_WG_NIC}-server.conf 2>/dev/null | wc -l | tr -d ' ')
+  local client_count=$(grep -E '^### Client' "${config_dir}/${SERVER_WG_NIC}-server.conf" 2>/dev/null | wc -l | tr -d ' ')
   echo -e "   👥 Client Count      : ${ORANGE}${client_count:-0}${NC}"
 
   # Show detailed interface info if running
