@@ -28,7 +28,7 @@
 # -----------------------------------------------------------------------------
 
 # Script version
-VERSION="1.0.0"
+VERSION="1.0.1"
 
 # ---------- Color Definitions ----------
 readonly RED='\033[0;31m'
@@ -773,6 +773,38 @@ function restart_server() {
 
   log_info "Restarting WireGuard server..."
 
+  # Check if config file exists
+  local server_conf="${config_dir}/${SERVER_WG_NIC}-server.conf"
+  if [ ! -f "$server_conf" ]; then
+    log_error "Configuration file not found: $server_conf"
+  fi
+
+  # Validate the configuration file
+  log_info "Validating configuration file..."
+  if ! wg-quick strip "$server_conf" &>/dev/null; then
+    log_warning "Configuration file has potential issues. Attempting to diagnose..."
+
+    # Check for common issues
+    if ! grep -q "PrivateKey" "$server_conf"; then
+      log_error "Missing PrivateKey in configuration. Please check your configuration file."
+    fi
+
+    if ! grep -q "Address" "$server_conf"; then
+      log_error "Missing Address in configuration. Please check your configuration file."
+    fi
+
+    # Show the configuration file structure (without showing private keys)
+    echo -e "\n${ORANGE}Configuration structure:${NC}"
+    grep -v "PrivateKey\|PresharedKey" "$server_conf" | cat -n
+
+    # Ask user if they want to continue anyway
+    read -rp "Configuration validation failed. Try restart anyway? (y/N): " CONTINUE
+    if [[ ! $CONTINUE =~ ^[Yy]$ ]]; then
+      log_warning "Restart canceled. Please fix your configuration first."
+      return 1
+    fi
+  fi
+
   # OS-specific restart
   if [ "$os" == "macos" ]; then
     # macOS WireGuard restart
@@ -781,12 +813,46 @@ function restart_server() {
       sudo wg-quick down "$SERVER_WG_NIC"
     fi
     sleep 1
-    sudo wg-quick up "$SERVER_WG_NIC"
+    if sudo wg-quick up "$server_conf"; then
+      log_info "WireGuard successfully restarted on macOS."
+    else
+      log_error "Failed to restart WireGuard on macOS. Check logs above for errors."
+    fi
   else
     # Linux WireGuard restart
     if command -v systemctl >/dev/null 2>&1; then
       log_info "Restarting WireGuard systemd service..."
-      systemctl restart wg-quick@${SERVER_WG_NIC}
+
+      # Stop first
+      systemctl stop wg-quick@${SERVER_WG_NIC}
+      sleep 1
+
+      # Try to start and capture error output
+      if systemctl start wg-quick@${SERVER_WG_NIC}; then
+        log_info "WireGuard systemd service successfully restarted."
+      else
+        log_warning "Systemd service restart failed. Trying direct wg-quick approach..."
+        # Show systemd status for debugging
+        systemctl status wg-quick@${SERVER_WG_NIC} --no-pager || true
+
+        # Try direct wg-quick approach
+        if ip link show "$SERVER_WG_NIC" &>/dev/null; then
+          wg-quick down ${SERVER_WG_NIC}
+        fi
+        sleep 1
+        if wg-quick up "$server_conf"; then
+          log_info "WireGuard successfully restarted with wg-quick."
+        else
+          # Provide more detailed diagnostic information
+          log_error "Failed to restart WireGuard. Check configuration file for errors."
+          echo -e "\n${ORANGE}Troubleshooting suggestions:${NC}"
+          echo "1. Check your configuration file for errors"
+          echo "2. Run: journalctl -xeu wg-quick@${SERVER_WG_NIC}.service"
+          echo "3. Verify that your firewall allows UDP port ${SERVER_PORT:-51820}"
+          echo "4. Make sure there are no IP conflicts"
+          return 1
+        fi
+      fi
     else
       # For non-systemd systems
       log_info "Restarting WireGuard with wg-quick..."
@@ -794,7 +860,12 @@ function restart_server() {
         wg-quick down ${SERVER_WG_NIC}
       fi
       sleep 1
-      wg-quick up ${SERVER_WG_NIC}
+      if wg-quick up "$server_conf"; then
+        log_info "WireGuard successfully restarted with wg-quick."
+      else
+        log_error "Failed to restart WireGuard. Check configuration file for errors."
+        return 1
+      fi
     fi
   fi
 
@@ -803,8 +874,10 @@ function restart_server() {
     log_info "WireGuard server restarted successfully."
     log_info "Interface: ${SERVER_WG_NIC}"
     log_info "To check status: wg show"
+    return 0
   else
-    log_error "Failed to restart WireGuard server. Interface $SERVER_WG_NIC is not active."
+    log_error "Failed to verify WireGuard interface is active after restart."
+    return 1
   fi
 }
 
