@@ -820,7 +820,6 @@ function deactivate_server() {
 }
 
 function restart_server() {
-  local os=$(detect_os)
   local config_dir=$(get_config_dir)
 
   log_info "Restarting WireGuard server (direct method)..."
@@ -833,97 +832,30 @@ function restart_server() {
 
   # Use the first server config found
   local server_conf="${server_confs[0]}"
-  log_info "Found server config: $server_conf"
+  local interface_name=$(basename "$server_conf" | sed 's/-server\.conf$//')
 
-  # Extract interface name
-  local interface_name=$(basename "$server_conf" -server.conf)
+  log_info "Found server config: $server_conf"
   log_info "Using interface: $interface_name"
 
-  # Create symlink for systemd if needed
-  if [ "$os" != "macos" ] && [ ! -f "${config_dir}/${interface_name}.conf" ]; then
-    log_info "Creating symlink for systemd compatibility..."
-    ln -sf "$server_conf" "${config_dir}/${interface_name}.conf"
+  # Stop the interface if it's running
+  if wg show "$interface_name" &>/dev/null || ip link show "$interface_name" &>/dev/null 2>&1 || ifconfig "$interface_name" &>/dev/null 2>&1; then
+    log_info "Stopping WireGuard interface: $interface_name"
+    sudo wg-quick down "$interface_name" || sudo wg-quick down "$server_conf" || true
+    sleep 2
   fi
 
-  # OS-specific restart
-  if [ "$os" == "macos" ]; then
-    # macOS WireGuard restart
-    log_info "Restarting WireGuard on macOS..."
-    if ifconfig "$interface_name" &>/dev/null 2>&1; then
-      sudo wg-quick down "$interface_name"
-    fi
-    sleep 1
-    if sudo wg-quick up "$server_conf"; then
-      log_info "WireGuard successfully restarted on macOS."
-    else
-      log_error "Failed to restart WireGuard on macOS. Check logs above for errors."
-    fi
-  else
-    # Linux WireGuard restart
-    if command -v systemctl >/dev/null 2>&1; then
-      log_info "Restarting WireGuard systemd service..."
-
-      # Stop first
-      systemctl stop wg-quick@${interface_name}
-      sleep 1
-
-      # Try to start and capture error output
-      if systemctl start wg-quick@${interface_name}; then
-        log_info "WireGuard systemd service successfully restarted."
-      else
-        log_warning "Systemd service restart failed. Trying direct wg-quick approach..."
-        # Show systemd status for debugging
-        systemctl status wg-quick@${interface_name} --no-pager || true
-
-        # Try direct wg-quick approach
-        if ip link show "$interface_name" &>/dev/null; then
-          wg-quick down ${interface_name}
-        fi
-        sleep 1
-        if wg-quick up "$server_conf"; then
-          log_info "WireGuard successfully restarted with wg-quick."
-        else
-          # Provide more detailed diagnostic information
-          log_error "Failed to restart WireGuard. Check configuration file for errors."
-          echo -e "\n${ORANGE}Troubleshooting suggestions:${NC}"
-          echo "1. Check your configuration file for errors"
-          echo "2. Run: journalctl -xeu wg-quick@${interface_name}.service"
-          echo "3. Verify that your firewall allows UDP port ${SERVER_PORT:-51820}"
-          echo "4. Make sure there are no IP conflicts"
-          echo -e "\n${ORANGE}Configuration location:${NC}"
-          echo "- Server config: $server_conf"
-          echo "- Systemd expects: ${config_dir}/${interface_name}.conf"
-          return 1
-        fi
-      fi
-    else
-      # For non-systemd systems
-      log_info "Restarting WireGuard with wg-quick..."
-      if ip link show "$interface_name" &>/dev/null; then
-        wg-quick down ${interface_name}
-      fi
-      sleep 1
-      if wg-quick up "$server_conf"; then
-        log_info "WireGuard successfully restarted with wg-quick."
-      else
-        log_error "Failed to restart WireGuard. Check configuration file for errors."
-        return 1
-      fi
-    fi
-  fi
-
-  # Verify the interface is up
-  if ip link show "$interface_name" &>/dev/null 2>&1 || ifconfig "$interface_name" &>/dev/null 2>&1; then
-    log_info "WireGuard server restarted successfully."
+  # Start the interface using the config file directly
+  log_info "Starting WireGuard interface using config: $server_conf"
+  if sudo wg-quick up "$server_conf"; then
+    log_info "WireGuard successfully restarted."
     log_info "Interface: ${interface_name}"
     log_info "To check status: wg show"
     return 0
   else
-    log_error "Failed to verify WireGuard interface is active after restart."
+    log_error "Failed to start WireGuard. Check configuration file for errors."
     return 1
   fi
 }
-
 function upgrade_manager() {
   local os=$(detect_os)
   local current_dir=$(get_config_dir)
