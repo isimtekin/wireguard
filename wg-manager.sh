@@ -823,83 +823,34 @@ function restart_server() {
   local os=$(detect_os)
   local config_dir=$(get_config_dir)
 
-  log_info "Restarting WireGuard server..."
+  log_info "Restarting WireGuard server (direct method)..."
 
-  # Find WireGuard server config files if SERVER_WG_NIC is not set
-  if [ -z "$SERVER_WG_NIC" ]; then
-    # Source server variables if they exist
-    if [ -f "${config_dir}/server_vars" ]; then
-      source "${config_dir}/server_vars"
-    fi
-
-    # If still empty, try to find config files
-    if [ -z "$SERVER_WG_NIC" ]; then
-      local server_confs=( $(ls ${config_dir}/*-server.conf 2>/dev/null) )
-      if [ ${#server_confs[@]} -eq 0 ]; then
-        log_error "No WireGuard server configuration found. Please run '$(basename $0) config' first."
-      fi
-
-      # Use the first server config found
-      local server_config_file="${server_confs[0]}"
-      SERVER_WG_NIC=$(basename "${server_config_file}" -server.conf)
-
-      # Fallback to wg0 if we couldn't determine the name
-      if [ -z "$SERVER_WG_NIC" ] || [ "$SERVER_WG_NIC" = "-server.conf" ]; then
-        SERVER_WG_NIC="wg0"
-        log_warning "Could not determine interface name, using default: $SERVER_WG_NIC"
-      else
-        log_info "Using detected interface: $SERVER_WG_NIC"
-      fi
-    fi
+  # Find all WireGuard server config files
+  local server_confs=( $(ls ${config_dir}/*-server.conf 2>/dev/null) )
+  if [ ${#server_confs[@]} -eq 0 ]; then
+    log_error "No WireGuard server configuration found. Please run '$(basename $0) config' first."
   fi
 
-  # Find the actual config file
-  local server_conf="${config_dir}/${SERVER_WG_NIC}-server.conf"
-  if [ ! -f "$server_conf" ]; then
-    log_error "Configuration file not found: $server_conf"
-  fi
+  # Use the first server config found
+  local server_conf="${server_confs[0]}"
+  log_info "Found server config: $server_conf"
 
-  # Determine the correct systemd service name (without -server suffix)
-  local systemd_service="${SERVER_WG_NIC}"
+  # Extract interface name
+  local interface_name=$(basename "$server_conf" -server.conf)
+  log_info "Using interface: $interface_name"
 
-  # Validate the configuration file
-  log_info "Validating configuration file..."
-  if ! wg-quick strip "$server_conf" &>/dev/null; then
-    log_warning "Configuration file has potential issues. Attempting to diagnose..."
-
-    # Check for common issues
-    if ! grep -q "PrivateKey" "$server_conf"; then
-      log_error "Missing PrivateKey in configuration. Please check your configuration file."
-    fi
-
-    if ! grep -q "Address" "$server_conf"; then
-      log_error "Missing Address in configuration. Please check your configuration file."
-    fi
-
-    # Show the configuration file structure (without showing private keys)
-    echo -e "\n${ORANGE}Configuration structure:${NC}"
-    grep -v "PrivateKey\|PresharedKey" "$server_conf" | cat -n
-
-    # Ask user if they want to continue anyway
-    read -rp "Configuration validation failed. Try restart anyway? (y/N): " CONTINUE
-    if [[ ! $CONTINUE =~ ^[Yy]$ ]]; then
-      log_warning "Restart canceled. Please fix your configuration first."
-      return 1
-    fi
-  fi
-
-  # Create a symlink from wg0.conf to wg0-server.conf if needed for systemd
-  if [ "$os" != "macos" ] && [ ! -f "${config_dir}/${systemd_service}.conf" ]; then
+  # Create symlink for systemd if needed
+  if [ "$os" != "macos" ] && [ ! -f "${config_dir}/${interface_name}.conf" ]; then
     log_info "Creating symlink for systemd compatibility..."
-    ln -sf "$server_conf" "${config_dir}/${systemd_service}.conf"
+    ln -sf "$server_conf" "${config_dir}/${interface_name}.conf"
   fi
 
   # OS-specific restart
   if [ "$os" == "macos" ]; then
     # macOS WireGuard restart
     log_info "Restarting WireGuard on macOS..."
-    if ifconfig "$SERVER_WG_NIC" &>/dev/null 2>&1; then
-      sudo wg-quick down "$SERVER_WG_NIC"
+    if ifconfig "$interface_name" &>/dev/null 2>&1; then
+      sudo wg-quick down "$interface_name"
     fi
     sleep 1
     if sudo wg-quick up "$server_conf"; then
@@ -913,20 +864,20 @@ function restart_server() {
       log_info "Restarting WireGuard systemd service..."
 
       # Stop first
-      systemctl stop wg-quick@${systemd_service}
+      systemctl stop wg-quick@${interface_name}
       sleep 1
 
       # Try to start and capture error output
-      if systemctl start wg-quick@${systemd_service}; then
+      if systemctl start wg-quick@${interface_name}; then
         log_info "WireGuard systemd service successfully restarted."
       else
         log_warning "Systemd service restart failed. Trying direct wg-quick approach..."
         # Show systemd status for debugging
-        systemctl status wg-quick@${systemd_service} --no-pager || true
+        systemctl status wg-quick@${interface_name} --no-pager || true
 
         # Try direct wg-quick approach
-        if ip link show "$SERVER_WG_NIC" &>/dev/null; then
-          wg-quick down ${SERVER_WG_NIC}
+        if ip link show "$interface_name" &>/dev/null; then
+          wg-quick down ${interface_name}
         fi
         sleep 1
         if wg-quick up "$server_conf"; then
@@ -936,20 +887,20 @@ function restart_server() {
           log_error "Failed to restart WireGuard. Check configuration file for errors."
           echo -e "\n${ORANGE}Troubleshooting suggestions:${NC}"
           echo "1. Check your configuration file for errors"
-          echo "2. Run: journalctl -xeu wg-quick@${systemd_service}.service"
+          echo "2. Run: journalctl -xeu wg-quick@${interface_name}.service"
           echo "3. Verify that your firewall allows UDP port ${SERVER_PORT:-51820}"
           echo "4. Make sure there are no IP conflicts"
           echo -e "\n${ORANGE}Configuration location:${NC}"
           echo "- Server config: $server_conf"
-          echo "- Systemd expects: ${config_dir}/${systemd_service}.conf"
+          echo "- Systemd expects: ${config_dir}/${interface_name}.conf"
           return 1
         fi
       fi
     else
       # For non-systemd systems
       log_info "Restarting WireGuard with wg-quick..."
-      if ip link show "$SERVER_WG_NIC" &>/dev/null; then
-        wg-quick down ${SERVER_WG_NIC}
+      if ip link show "$interface_name" &>/dev/null; then
+        wg-quick down ${interface_name}
       fi
       sleep 1
       if wg-quick up "$server_conf"; then
@@ -962,9 +913,9 @@ function restart_server() {
   fi
 
   # Verify the interface is up
-  if ip link show "$SERVER_WG_NIC" &>/dev/null 2>&1 || ifconfig "$SERVER_WG_NIC" &>/dev/null 2>&1; then
+  if ip link show "$interface_name" &>/dev/null 2>&1 || ifconfig "$interface_name" &>/dev/null 2>&1; then
     log_info "WireGuard server restarted successfully."
-    log_info "Interface: ${SERVER_WG_NIC}"
+    log_info "Interface: ${interface_name}"
     log_info "To check status: wg show"
     return 0
   else
