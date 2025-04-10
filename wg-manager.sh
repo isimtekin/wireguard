@@ -832,7 +832,8 @@ function restart_server() {
 
   # Use the first server config found
   local server_conf="${server_confs[0]}"
-  local interface_name=$(basename "$server_conf" | sed 's/-server\.conf$//')
+  # Use the full filename including -server as the interface name
+  local interface_name=$(basename "$server_conf" .conf)
 
   log_info "Found server config: $server_conf"
   log_info "Using interface: $interface_name"
@@ -842,6 +843,16 @@ function restart_server() {
     log_info "Stopping WireGuard interface: $interface_name"
     sudo wg-quick down "$interface_name" || sudo wg-quick down "$server_conf" || true
     sleep 2
+  fi
+
+  # Try to stop the interface without -server suffix as well (in case it exists)
+  local base_interface=${interface_name/-server/}
+  if [ "$base_interface" != "$interface_name" ]; then
+    if wg show "$base_interface" &>/dev/null || ip link show "$base_interface" &>/dev/null 2>&1 || ifconfig "$base_interface" &>/dev/null 2>&1; then
+      log_info "Stopping alternative WireGuard interface: $base_interface"
+      sudo wg-quick down "$base_interface" || true
+      sleep 2
+    fi
   fi
 
   # Start the interface using the config file directly
@@ -856,6 +867,7 @@ function restart_server() {
     return 1
   fi
 }
+
 function upgrade_manager() {
   local os=$(detect_os)
   local current_dir=$(get_config_dir)
