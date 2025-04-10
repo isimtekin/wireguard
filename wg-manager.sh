@@ -282,7 +282,6 @@ Address = $SERVER_WG_IP
 ListenPort = $SERVER_PORT
 PrivateKey = $private_key
 
-SaveConfig = true
 PostUp   = iptables -A FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE
 PostDown = iptables -D FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE
 EOL
@@ -325,7 +324,7 @@ function add_client() {
   local server_config_file="${server_confs[0]}"
   if [ -z "$SERVER_WG_NIC" ]; then
     SERVER_WG_NIC=$(basename "${server_config_file}" -server.conf)
-    log_info "📄 Using detected interface: ${SERVER_WG_NIC}"
+    log_info "📄 Using detected interface: ${SERVER_WG_NIC}-server"
   fi
 
   # Read actual subnet from config file if PRIVATE_SUBNET_BASE is not set
