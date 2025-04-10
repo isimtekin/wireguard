@@ -9,7 +9,21 @@ ORANGE='\033[0;33m'
 NC='\033[0m'
 
 function usage() {
-  echo -e "${ORANGE}Usage: $0 {install|config|add-client|transfer-conf <server_ip> <destination_ip> <client_name>}${NC}"
+  echo -e "${ORANGE}Usage: $0 COMMAND${NC}"
+  echo -e "\nAvailable commands:"
+  echo -e "  ${GREEN}install${NC}             Install WireGuard on the current system"
+  echo -e "  ${GREEN}config${NC}              Create WireGuard server configuration"
+  echo -e "  ${GREEN}add-client${NC}          Add a new client to WireGuard server"
+  echo -e "  ${GREEN}transfer-conf${NC}       Transfer a client config from server to destination"
+  echo -e "  ${GREEN}download-conf${NC}       Download a client config from server to local machine"
+  echo -e "  ${GREEN}list-clients${NC}        List all existing WireGuard clients"
+  echo -e "\nExamples:"
+  echo -e "  $0 install                       # Install WireGuard"
+  echo -e "  $0 config                        # Set up server configuration"
+  echo -e "  $0 add-client                    # Add a new client"
+  echo -e "  $0 transfer-conf                 # Transfer client config (interactive)"
+  echo -e "  $0 download-conf                 # Download client config to local machine"
+  echo -e "  $0 list-clients                  # Show all client configurations"
 }
 
 function isRoot() {
@@ -114,9 +128,9 @@ Address = $SERVER_WG_IP
 ListenPort = $SERVER_PORT
 PrivateKey = $PRIVATE_KEY
 
-# SaveConfig = true
-# PostUp   = iptables -A FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE
-# PostDown = iptables -D FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE
+SaveConfig = true
+PostUp   = iptables -A FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -A POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE
+PostDown = iptables -D FORWARD -i $SERVER_WG_NIC -j ACCEPT; iptables -t nat -D POSTROUTING -o $SERVER_PUB_NIC -j MASQUERADE
 EOL
 
   echo -e "${GREEN}Server config created at: $CONFIG_FILE${NC}"
